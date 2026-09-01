@@ -1,0 +1,396 @@
+{
+  "_generated": "GENERATED FROM rules/pwsh-rules.yaml BY tools/build_rules_json.py - DO NOT EDIT",
+  "version": 1,
+  "rules": [
+    {
+      "id": "bash-shopt-extglob",
+      "severity": "error",
+      "title": "shopt / extglob is a bash builtin",
+      "detect": "\\bshopt\\s+(-[su]\\s+)?\\w+",
+      "why": "shopt is a bash builtin. PowerShell has no shell options table, so the command dies with \"The term 'shopt' is not recognized\". This is the exact failure reported in anthropics/claude-code#28670.",
+      "pwsh": "There is no equivalent and none is needed: PowerShell's own globbing plus Get-ChildItem -Include/-Exclude covers what extglob is normally used for. e.g. bash \"rm !(keep.txt)\" -> pwsh \"Get-ChildItem -Exclude keep.txt | Remove-Item\"",
+      "examples": {
+        "positive": [
+          "shopt -s extglob",
+          "shopt -u nullglob && ls",
+          "shopt -s globstar"
+        ],
+        "negative": [
+          "Get-ChildItem -Exclude keep.txt",
+          "git shortlog -sn"
+        ]
+      }
+    },
+    {
+      "id": "bash-extglob-pattern",
+      "severity": "error",
+      "title": "extglob pattern !(...) / @(...) / +(...)",
+      "detect": "(?<![\\w$])[!@+?]\\([^)]*\\|[^)]*\\)",
+      "why": "Extended globs such as !(a|b) and @(a|b) are bash-only pattern syntax. PowerShell parses the parentheses as a sub-expression and either errors or silently matches nothing.",
+      "pwsh": "Use Get-ChildItem with -Include/-Exclude (both accept arrays), or a -match/-notmatch regex filter. e.g. \"rm !(a|b)\" -> \"Get-ChildItem -Exclude a,b | Remove-Item\"",
+      "examples": {
+        "positive": [
+          "rm -f !(keep.txt|also-keep.txt)",
+          "ls @(*.js|*.ts)"
+        ],
+        "negative": [
+          "Get-ChildItem -Exclude a,b",
+          "grep -E '(foo|bar)' file.txt",
+          "echo $(git rev-parse HEAD)"
+        ]
+      }
+    },
+    {
+      "id": "bash-brace-expansion",
+      "severity": "error",
+      "title": "brace expansion {a,b}",
+      "detect": "(?<![\\w$)])\\{[A-Za-z0-9_.*-]+,[A-Za-z0-9_.*,-]+\\}",
+      "why": "bash expands {a,b} into two words before running the command. PowerShell does not expand braces at all - it passes the literal text \"{a,b}\" through, so the command runs against a filename that does not exist.",
+      "pwsh": "Pass an explicit array or use -Include with a comma list. e.g. \"cp file.{txt,bak}\" -> \"Copy-Item file.txt file.bak\"; \"ls *.{js,ts}\" -> \"Get-ChildItem -Include *.js,*.ts -Recurse\"",
+      "examples": {
+        "positive": [
+          "mkdir -p src/{a,b,c}",
+          "cp config.{json,bak}"
+        ],
+        "negative": [
+          "echo ${VAR}",
+          "Get-ChildItem -Include *.js,*.ts",
+          "jq -n \"{a: 1}\""
+        ]
+      }
+    },
+    {
+      "id": "posix-dev-null",
+      "severity": "error",
+      "title": "/dev/null does not exist on Windows",
+      "detect": "/dev/null",
+      "why": "/dev/null is a POSIX device file. On Windows PowerShell the redirection target is created as a literal file named \"null\" inside a \"dev\" directory, or the command fails because the path does not exist.",
+      "pwsh": "Redirect to $null:  \"cmd > $null\"  or, for all streams, \"cmd *> $null\"",
+      "fix": {
+        "pattern": "/dev/null",
+        "replacement": "$null",
+        "safe": true
+      },
+      "examples": {
+        "positive": [
+          "git status > /dev/null",
+          "command -v node >/dev/null 2>&1"
+        ],
+        "negative": [
+          "Get-Content file > $null",
+          "echo devnull"
+        ]
+      }
+    },
+    {
+      "id": "posix-redirect-both-streams",
+      "severity": "error",
+      "title": "2>&1 combined-stream redirection differs",
+      "detect": "(?<!\\*)>\\s*&?\\s*/?\\S*\\s*2>&1|2>&1\\s*>",
+      "why": "PowerShell does support \"2>&1\", but the bash idiom \"> file 2>&1\" is order-sensitive and the common \"> /dev/null 2>&1\" form silently creates a file. PowerShell's own redirect-everything operator is \"*>\".",
+      "pwsh": "Use \"cmd *> $null\" to discard everything, or \"cmd *> out.log\" to capture everything.",
+      "examples": {
+        "positive": [
+          "npm run build > /dev/null 2>&1",
+          "make 2>&1 > build.log"
+        ],
+        "negative": [
+          "npm run build *> $null",
+          "git log --oneline"
+        ]
+      }
+    },
+    {
+      "id": "bash-export",
+      "severity": "error",
+      "title": "export VAR=value is a bash builtin",
+      "detect": "(?:^|[;&|]\\s*)export\\s+([A-Za-z_][A-Za-z0-9_]*)=",
+      "why": "export is a bash builtin. PowerShell sets process environment variables through the env: drive, and \"export\" is not a recognized command.",
+      "pwsh": "$env:VAR = \"value\"",
+      "fix": {
+        "pattern": "(^|[;&|]\\s*)export\\s+([A-Za-z_][A-Za-z0-9_]*)=(?:\"([^\"]*)\"|'([^']*)'|([^\\s;&|]+))",
+        "replacement": "\\1$env:\\2 = \"\\3\\4\\5\"",
+        "safe": true
+      },
+      "examples": {
+        "positive": [
+          "export NODE_ENV=production",
+          "export API_URL=\"https://example.com\"",
+          "npm ci; export CI=true"
+        ],
+        "negative": [
+          "$env:NODE_ENV = \"production\"",
+          "git export-ignore"
+        ]
+      }
+    },
+    {
+      "id": "bash-source",
+      "severity": "error",
+      "title": "source / . script.sh is a bash builtin",
+      "detect": "(?:^|[;&|]\\s*)(?:source|\\.)\\s+\\S+\\.(?:sh|bash|env|profile|rc)\\b",
+      "why": "source (and its \".\" alias) reads a shell script into the current bash session. PowerShell cannot execute .sh files, and \"source\" is not a command. Dot-sourcing in PowerShell works only on .ps1 files.",
+      "pwsh": ". .\\script.ps1   (dot, space, path to a .ps1). For .env files, parse them and assign into $env:.",
+      "examples": {
+        "positive": [
+          "source ./venv/bin/activate.sh",
+          ". ./config.env && npm start"
+        ],
+        "negative": [
+          ". .\\setup.ps1",
+          "git log ."
+        ]
+      }
+    },
+    {
+      "id": "bash-which",
+      "severity": "warn",
+      "title": "which is not a PowerShell command",
+      "detect": "(?:^|[;&|]\\s*)which\\s+(\\S+)",
+      "why": "\"which\" ships with Git Bash and coreutils, not with Windows. When Git Bash is not on PATH, PowerShell reports \"The term 'which' is not recognized\".",
+      "pwsh": "Get-Command <name>   (or \"Get-Command <name> -ErrorAction SilentlyContinue\" for a soft check)",
+      "applies_if": {
+        "requires_missing_tool": "which"
+      },
+      "fix": {
+        "pattern": "(^|[;&|]\\s*)which\\s+(\\S+)",
+        "replacement": "\\1Get-Command \\2",
+        "safe": true
+      },
+      "examples": {
+        "positive": [
+          "which node",
+          "npm -v; which python"
+        ],
+        "negative": [
+          "Get-Command node",
+          "echo which one"
+        ]
+      }
+    },
+    {
+      "id": "bash-command-v",
+      "severity": "warn",
+      "title": "command -v is a POSIX builtin",
+      "detect": "(?:^|[;&|]\\s*|\\bif\\s+)command\\s+-v\\s+\\S+",
+      "why": "PowerShell has no \"command\" builtin, so \"command -v git\" errors out.",
+      "pwsh": "Get-Command git -ErrorAction SilentlyContinue",
+      "examples": {
+        "positive": [
+          "command -v docker",
+          "if command -v jq; then echo yes; fi"
+        ],
+        "negative": [
+          "Get-Command docker -ErrorAction SilentlyContinue",
+          "git commit -v"
+        ]
+      }
+    },
+    {
+      "id": "posix-env-var-ref",
+      "severity": "error",
+      "title": "$VAR reads a PowerShell variable, not an environment variable",
+      "detect": "\\$\\{?(PATH|USER|USERNAME|LOGNAME|TEMP|TMP|TMPDIR|SHELL|EDITOR|LANG|HOSTNAME|APPDATA|LOCALAPPDATA|USERPROFILE|COMPUTERNAME|SYSTEMROOT|WINDIR|PROGRAMFILES|NODE_ENV|CI|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|GITHUB_TOKEN|VIRTUAL_ENV)\\}?\\b",
+      "why": "This is the quietest failure of the set. In PowerShell \"$PATH\" is an ordinary (undefined) variable, so it expands to an empty string instead of erroring. The command runs and produces wrong output with no error at all. Note that $HOME, $PWD and $PSHOME DO exist as PowerShell automatic variables, so they are deliberately excluded from this rule.",
+      "pwsh": "$env:PATH  -  environment variables live in the env: drive.",
+      "fix": {
+        "pattern": "\\$\\{?(PATH|USER|USERNAME|LOGNAME|TEMP|TMP|TMPDIR|SHELL|EDITOR|LANG|HOSTNAME|APPDATA|LOCALAPPDATA|USERPROFILE|COMPUTERNAME|SYSTEMROOT|WINDIR|PROGRAMFILES|NODE_ENV|CI|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|GITHUB_TOKEN|VIRTUAL_ENV)\\}?\\b",
+        "replacement": "$env:\\1",
+        "safe": true
+      },
+      "examples": {
+        "positive": [
+          "echo $PATH",
+          "echo \"user is $USER\"",
+          "node -e \"console.log(1)\" && echo ${NODE_ENV}"
+        ],
+        "negative": [
+          "echo $env:PATH",
+          "echo $HOME",
+          "Write-Output $PWD",
+          "echo $myVariable"
+        ]
+      }
+    },
+    {
+      "id": "bash-line-continuation",
+      "severity": "error",
+      "title": "backslash line continuation",
+      "detect": "\\\\\\s*\\n",
+      "why": "bash continues a line with a trailing backslash. PowerShell uses a backtick. A trailing backslash in PowerShell is either a literal character or a parse error, so multi-line commands break.",
+      "pwsh": "End the line with a backtick (`) instead of a backslash.",
+      "fix": {
+        "pattern": "\\\\(\\s*\\n)",
+        "replacement": "`\\1",
+        "safe": true
+      },
+      "examples": {
+        "positive": [
+          "docker run \\\n  --rm alpine"
+        ],
+        "negative": [
+          "docker run `\n  --rm alpine",
+          "echo C:\\Users\\info"
+        ]
+      }
+    },
+    {
+      "id": "bash-heredoc",
+      "severity": "error",
+      "title": "heredoc (<<EOF) is bash syntax",
+      "detect": "<<-?\\s*['\"]?[A-Za-z_][A-Za-z0-9_]*['\"]?\\s*(\\n|$)",
+      "why": "Heredocs are parsed by bash. PowerShell reads \"<<\" as a redirection operator it reserves and has not implemented, producing \"The '<' operator is reserved for future use.\"",
+      "pwsh": "Use a here-string. Literal (no interpolation): @'  ... newline ... '@ . Expanding: @\"  ... newline ... \"@ . The opening marker must be the last thing on its line and the closing marker must start at column 1.",
+      "examples": {
+        "positive": [
+          "cat <<'EOF'\nhello\nEOF",
+          "cat <<EOF\nhello\nEOF"
+        ],
+        "negative": [
+          "echo hi",
+          "sort < input.txt",
+          "@'\nhello\n'@"
+        ]
+      }
+    },
+    {
+      "id": "bash-ansi-c-quoting",
+      "severity": "error",
+      "title": "$'...' ANSI-C quoting",
+      "detect": "\\$'",
+      "why": "bash's $'...' form interprets escapes such as \\n and \\t. PowerShell reads \"$\" followed by a quote as an incomplete sub-expression and fails to parse.",
+      "pwsh": "Use a double-quoted string with backtick escapes: \"line1`nline2\"",
+      "examples": {
+        "positive": [
+          "printf $'a\\nb'"
+        ],
+        "negative": [
+          "echo 'plain'",
+          "echo $env:PATH"
+        ]
+      }
+    },
+    {
+      "id": "bash-test-brackets",
+      "severity": "error",
+      "title": "[ ... ] / [[ ... ]] test expressions",
+      "detect": "(?:^|[;&|]\\s*|\\bif\\s+|\\bwhile\\s+)\\[\\[?\\s",
+      "why": "\"[\" is the bash test builtin and \"[[\" is a bash keyword. PowerShell reads a leading \"[\" as the start of a type literal or array, so the condition never evaluates as a test.",
+      "pwsh": "Use PowerShell comparison operators and cmdlets: \"if (Test-Path ./file) { ... }\", \"if ($x -eq 1) { ... }\", \"if (-not $x) { ... }\"",
+      "examples": {
+        "positive": [
+          "if [ -f package.json ]; then npm ci; fi",
+          "[[ -d node_modules ]] && echo ok"
+        ],
+        "negative": [
+          "if (Test-Path package.json) { npm ci }",
+          "git log --format=[%h]",
+          "echo [1,2,3]"
+        ]
+      }
+    },
+    {
+      "id": "bash-chain-and-or-ps5",
+      "severity": "error",
+      "title": "&& / || chaining is not supported before PowerShell 7",
+      "detect": "(\\|\\||&&)",
+      "why": "Pipeline chain operators were added in PowerShell 7. Windows PowerShell 5.1 - the powershell.exe that ships with Windows and the default shell for many Claude Code installs - rejects them with \"The token '&&' is not a valid statement separator in this version.\"",
+      "pwsh": "Sequence with \";\" when you do not care about failure, or gate explicitly: \"cmd1; if ($LASTEXITCODE -eq 0) { cmd2 }\". For native cmdlets use \"$ErrorActionPreference = 'Stop'\".",
+      "applies_if": {
+        "max_pwsh_major": 6
+      },
+      "fix": {
+        "pattern": "\\s*&&\\s*",
+        "replacement": "; ",
+        "safe": false
+      },
+      "examples": {
+        "positive": [
+          "npm ci && npm test",
+          "mkdir build || echo exists"
+        ],
+        "negative": [
+          "npm ci; npm test",
+          "grep -E 'a|b' file"
+        ]
+      }
+    },
+    {
+      "id": "bash-xargs",
+      "severity": "warn",
+      "title": "xargs is not available",
+      "detect": "(?:^|[;&|]\\s*|\\|\\s*)xargs\\b",
+      "why": "xargs is a coreutils program. It is not present on a stock Windows box.",
+      "pwsh": "Pipe into ForEach-Object:  Get-ChildItem *.log | ForEach-Object { Remove-Item $_ }",
+      "applies_if": {
+        "requires_missing_tool": "xargs"
+      },
+      "examples": {
+        "positive": [
+          "find . -name '*.log' | xargs rm"
+        ],
+        "negative": [
+          "Get-ChildItem *.log | ForEach-Object { Remove-Item $_ }"
+        ]
+      }
+    },
+    {
+      "id": "unix-text-tools-missing",
+      "severity": "warn",
+      "title": "grep / sed / awk are not on PATH",
+      "detect": "(?:^|[;&|]\\s*|\\|\\s*)(grep|sed|awk)\\s",
+      "why": "These are coreutils programs. They exist only if Git Bash, WSL, or MSYS is installed and on PATH. This rule fires only when the tool is genuinely absent from PATH on this machine, so a box with Git Bash installed will never see it.",
+      "pwsh": "grep -> Select-String -Pattern 'x' ; sed 's/a/b/' -> (Get-Content f) -replace 'a','b' ; awk '{print $2}' -> ForEach-Object { ($_ -split '\\s+')[1] }",
+      "applies_if": {
+        "requires_missing_tool": "grep"
+      },
+      "examples": {
+        "positive": [
+          "cat file.txt | grep error",
+          "sed -i 's/a/b/' file.txt"
+        ],
+        "negative": [
+          "Select-String -Pattern error file.txt",
+          "git grep TODO"
+        ]
+      }
+    },
+    {
+      "id": "posix-absolute-path",
+      "severity": "warn",
+      "title": "POSIX absolute path",
+      "detect": "(?:^|\\s)(/(?:usr|etc|var|opt|home|tmp|proc|bin|sbin|mnt)/\\S*)",
+      "why": "Paths such as /usr/local/bin and /tmp do not exist on Windows. PowerShell resolves a leading \"/\" against the current drive root, so the path silently points somewhere that does not exist.",
+      "pwsh": "Use $env:TEMP instead of /tmp, $env:USERPROFILE instead of /home/<user>, and $env:ProgramFiles instead of /usr/local. Prefer Join-Path over string concatenation.",
+      "examples": {
+        "positive": [
+          "cp build.zip /tmp/build.zip",
+          "ls /usr/local/bin"
+        ],
+        "negative": [
+          "Copy-Item build.zip $env:TEMP",
+          "git log --stat",
+          "curl https://example.com/usr/x"
+        ]
+      }
+    },
+    {
+      "id": "bash-single-quote-literal",
+      "severity": "info",
+      "title": "single quotes never interpolate in PowerShell",
+      "detect": "'[^']*\\$(?:env:)?[A-Za-z_][^']*'",
+      "why": "In bash, single quotes are literal and double quotes interpolate - the same as PowerShell. The trap is the reverse direction: text moved from a double-quoted bash string into single quotes stops expanding, and PowerShell also has no backslash escapes inside single quotes ('' escapes a quote instead). A $ inside single quotes is always literal.",
+      "pwsh": "Use double quotes when you want expansion: \"value is $env:PATH\"",
+      "examples": {
+        "positive": [
+          "echo 'path is $PATH'",
+          "echo 'home is $env:USERPROFILE'"
+        ],
+        "negative": [
+          "echo \"path is $env:PATH\"",
+          "echo 'no variables here'"
+        ]
+      }
+    }
+  ]
+}

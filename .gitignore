@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Settings backups produced by install.ps1 / uninstall.ps1
+*.pwsh-guard-backup-*
+*.pwsh-guard-tmp-*
+
+# Local overrides
+.claude/settings.local.json
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

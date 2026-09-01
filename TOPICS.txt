@@ -1,0 +1,1 @@
+claude-code,claude-code-hooks,powershell,pwsh,windows,anthropic,ai-agents,developer-tools,shell,bash,linter,static-analysis,cli,automation,hooks,agentic-coding,python,devex
