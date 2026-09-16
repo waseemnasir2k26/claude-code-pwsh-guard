@@ -2,6 +2,11 @@
 
 A Claude Code hook pack that catches bash-only shell syntax before it reaches a Windows PowerShell session, and either rewrites it to the PowerShell equivalent or blocks it with the correct command in the error message.
 
+## Status
+
+Last reviewed: September 2026 · release v2026.09
+
+
 ```text
 Claude                                                    pwsh-guard                          Result
 ──────────────────────────────────────────────────────────────────────────────────────────────────
