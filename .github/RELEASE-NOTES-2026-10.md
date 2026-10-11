@@ -1,0 +1,4 @@
+- claude-code-pwsh-guard is a public Claude Code hook pack that catches bash-only syntax before it reaches a Windows PowerShell session, rewriting it where safe and blocking with the PowerShell equivalent otherwise.
+- State: Python hooks, data-defined rules in `rules/`, install/uninstall PowerShell scripts, and a `tests/` suite (engine, hook contract, installer merge, rules). Two commits before this sweep; v1 landed 2026-09-01.
+- Reviewed October 2026: README, tree and history read; the Claude Code hooks docs link and both linked claude-code issues (#28670, #35760) return 200. No rules or hook code were changed.
+- Known gaps, as the README's Limitations section says: rule matching is heuristic regex rather than shell parsing, so false positives are possible. No CI workflow is committed.
