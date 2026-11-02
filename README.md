@@ -45,6 +45,6 @@ You run Claude Code on Windows, your Bash tool lands in PowerShell, and you are 
 
 ## Built by SkynetLabs
 
-Built by [SkynetLabs](https://skynetjoe.com). Questions: info@skynetjoe.com
+Built by [SkynetLabs](https://skynetjoe.com). Questions: waseem@skynetjoe.com
 
 Need this wired into your business? SkynetLabs builds voice agents, n8n back offices and sites that convert → https://skynetjoe.com
